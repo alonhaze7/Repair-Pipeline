@@ -59,6 +59,46 @@
 
     table { border-collapse: collapse; width:100%; }
     thead th { position:sticky; top:0; background:#f8fafc; z-index:1; }
+
+    /* Row dropdown */
+    .dropdown-menu {
+      position: absolute;
+      right: 8px;
+      top: calc(100% + 2px);
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      box-shadow: 0 8px 28px rgba(0,0,0,.13);
+      min-width: 190px;
+      z-index: 500;
+      overflow: hidden;
+      animation: fadeIn .15s ease-out forwards;
+    }
+    .dropdown-menu button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 10px 16px;
+      font-size: .85rem;
+      color: #374151;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .dropdown-menu button:hover { background: #f1f5f9; }
+    .dropdown-menu .divider { border-top: 1px solid #e2e8f0; margin: 4px 0; }
+    .dropdown-menu .repair-btn { color: #2563eb; font-weight: 600; display:flex; align-items:center; gap:8px; }
+    .dropdown-menu .repair-btn:hover { background: #eff6ff; }
+    .chevron-btn {
+      background: none; border: none; cursor: pointer;
+      padding: 5px 7px; border-radius: 6px;
+      color: #94a3b8; transition: background .15s, color .15s;
+      display: flex; align-items: center;
+    }
+    .chevron-btn:hover { background: #f1f5f9; color: #374151; }
+    .chevron-btn svg { transition: transform .2s; }
+    .chevron-btn.open svg { transform: rotate(180deg); }
   </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
@@ -148,6 +188,7 @@
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Last Run</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Next Run</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Last Data Date</th>
+              <th class="px-4 py-3 w-10"></th>
             </tr>
           </thead>
           <tbody id="pipeline-tbody"></tbody>
@@ -158,7 +199,7 @@
     <!-- ── Legend / call-out ── -->
     <div class="mt-4 flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-800 max-w-xl">
       <svg class="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z"/></svg>
-      <span>Click the <strong>🔧 wrench icon</strong> next to any <span class="text-red-600 font-semibold">Failed</span> pipeline to open the Repair Monitor and watch each step get resolved in real time.</span>
+      <span>Click the <strong>∨ chevron</strong> on any row to open the configuration menu. For <span class="text-red-600 font-semibold">Failed</span> pipelines, click <strong>🔧 Repair</strong> to open the live Repair Monitor.</span>
     </div>
   </main>
 </div>
@@ -231,6 +272,7 @@ const REPAIR_TASKS = [
 // State
 let pipelines = PIPELINES.map(p => ({...p}));
 let repairingIds = {};
+let openDropdown = null;
 
 // ── Render table ──────────────────────────────────────────
 function statusBadge(p) {
@@ -267,6 +309,39 @@ function lastRunBadge(s) {
   return `<span class="text-sm text-gray-400">N/A</span>`;
 }
 
+function dropdownMenu(p) {
+  const isOpen = openDropdown === p.id;
+  const repairItem = (p.status === 'Failed' && !repairingIds[p.id]) ? `
+    <div class="divider"></div>
+    <button class="repair-btn" onclick="event.stopPropagation();closeDropdown();startRepair(${p.id})">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17L4.655 7.105M3 3l1.655 4.105M14.5 5.5l3 3-7 7-3-3 7-7z"/>
+      </svg>
+      Repair
+    </button>` : '';
+
+  return `
+    <td class="px-4 py-3 relative" style="overflow:visible">
+      <button class="chevron-btn${isOpen ? ' open' : ''}"
+        onclick="event.stopPropagation();toggleDropdown(${p.id})"
+        title="Options">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </button>
+      ${isOpen ? `
+      <div class="dropdown-menu">
+        <button onclick="event.stopPropagation();alert('Pipeline Details for: ${p.name}');closeDropdown()">Pipeline Details</button>
+        <button onclick="event.stopPropagation();alert('Process Log for: ${p.name}');closeDropdown()">Process Log</button>
+        <button onclick="event.stopPropagation();alert('Delete: ${p.name}');closeDropdown()">Delete</button>
+        <button onclick="event.stopPropagation();alert('Edit Mapping for: ${p.name}');closeDropdown()">Edit Mapping</button>
+        <button onclick="event.stopPropagation();alert('Automate Retrieval for: ${p.name}');closeDropdown()">Automate Retrieval</button>
+        ${repairItem}
+      </div>` : ''}
+    </td>`;
+}
+
 function renderTable() {
   const tbody = document.getElementById('pipeline-tbody');
   tbody.innerHTML = pipelines.map(p => `
@@ -279,9 +354,25 @@ function renderTable() {
       <td class="px-4 py-3 text-sm text-gray-500">${p.lastRun || '–'}</td>
       <td class="px-4 py-3 text-sm text-gray-500">${p.nextRun || '–'}</td>
       <td class="px-4 py-3 text-sm text-gray-500">${p.lastDataDate || '–'}</td>
+      ${dropdownMenu(p)}
     </tr>
   `).join('');
 }
+
+function toggleDropdown(id) {
+  openDropdown = openDropdown === id ? null : id;
+  renderTable();
+}
+
+function closeDropdown() {
+  openDropdown = null;
+  renderTable();
+}
+
+// Close dropdown when clicking anywhere outside
+document.addEventListener('click', () => {
+  if (openDropdown !== null) closeDropdown();
+});
 
 // ── Repair logic ──────────────────────────────────────────
 function startRepair(id) {
